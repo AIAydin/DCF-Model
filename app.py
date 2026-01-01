@@ -184,12 +184,19 @@ class StockDataFetcher:
     """Fetches and processes stock data from Yahoo Finance."""
 
     @staticmethod
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=3600, show_spinner=False)
     def get_stock_data(ticker: str) -> Dict[str, Any]:
         """Fetch comprehensive stock data."""
         try:
             stock = yf.Ticker(ticker)
             info = stock.info
+
+            # Validate that we got actual data (yfinance returns empty dict on soft failures)
+            if not info or not info.get("symbol") and not info.get("shortName"):
+                return {
+                    "success": False,
+                    "error": f"No data found for ticker '{ticker}'. The symbol may be invalid or data is temporarily unavailable.",
+                }
 
             # Get financial statements
             income_stmt = stock.income_stmt
@@ -209,6 +216,10 @@ class StockDataFetcher:
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def clear_cache():
+        StockDataFetcher.get_stock_data.clear()
 
     @staticmethod
     def extract_financials(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -619,7 +630,13 @@ def main():
             .strip()
         )
 
-        analyze_button = st.button("Analyze Stock", use_container_width=True)
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            analyze_button = st.button("Analyze Stock", use_container_width=True)
+        with col2:
+            if st.button("🔄", help="Clear cached data and refresh"):
+                StockDataFetcher.clear_cache()
+                st.rerun()
 
         st.markdown("---")
 
@@ -704,9 +721,9 @@ def main():
             data = StockDataFetcher.get_stock_data(ticker)
 
         if not data.get("success", False):
-            st.error(
-                f"Could not fetch data for {ticker}. Please check the ticker symbol."
-            )
+            error_msg = data.get("error", "Unknown error")
+            st.error(f"Could not fetch data for {ticker}: {error_msg}")
+            st.info("💡 Try clicking the 🔄 button to clear the cache and retry.")
             return
 
         financials = StockDataFetcher.extract_financials(data)
